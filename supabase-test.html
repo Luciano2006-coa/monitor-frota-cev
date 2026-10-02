@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CEV • Teste Supabase</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(135deg,#123d63,#1b5c90);font-family:Arial,Helvetica,sans-serif;color:#173c54}.box{width:min(440px,100%);background:#fff;border-radius:20px;padding:26px;box-shadow:0 24px 60px #0004}.brand{font-size:12px;font-weight:900;letter-spacing:.08em;color:#1b5c90;text-transform:uppercase}.box h1{font-size:23px;margin:7px 0 5px}.sub{margin:0 0 20px;color:#6b7d89;font-size:13px}.field{margin:12px 0}.field label{display:block;font-size:12px;font-weight:800;margin-bottom:5px}.field input{width:100%;border:1px solid #cbd7df;border-radius:10px;padding:12px;font-size:14px;outline:none}.field input:focus{border-color:#1b5c90;box-shadow:0 0 0 3px #1b5c9018}button{width:100%;border:0;border-radius:10px;padding:12px;font-weight:900;cursor:pointer}.primary{background:#1b5c90;color:#fff}.soft{margin-top:9px;background:#eef5fa;color:#174b6f}.status{margin-top:16px;border-radius:12px;padding:12px;background:#f3f7f9;font-size:12px;line-height:1.55}.ok{background:#eaf8f0;color:#176b43}.err{background:#fff0f0;color:#a52b2b}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.card{background:#f7fafb;border:1px solid #e2e9ed;border-radius:10px;padding:10px}.card span{display:block;color:#738793;font-size:10px;font-weight:800;text-transform:uppercase}.card b{display:block;margin-top:4px;font-size:13px;overflow-wrap:anywhere}.hidden{display:none}.note{font-size:11px;color:#71808a;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="brand">Central Energética de Vicentina</div>
+  <h1>🔐 Teste do banco online</h1>
+  <p class="sub">Esta página testa apenas Supabase Auth + RLS. Não altera o Monitor de Frota.</p>
+
+  <div id="loginArea">
+    <div class="field"><label>E-mail do usuário Supabase</label><input id="email" type="email" autocomplete="username" placeholder="seuemail@..."/></div>
+    <div class="field"><label>Senha</label><input id="password" type="password" autocomplete="current-password" placeholder="Digite sua senha"/></div>
+    <button class="primary" id="loginBtn">Entrar e testar</button>
+  </div>
+
+  <div id="resultArea" class="hidden">
+    <div class="grid">
+      <div class="card"><span>Usuário</span><b id="profileName">-</b></div>
+      <div class="card"><span>Perfil</span><b id="profileRole">-</b></div>
+      <div class="card"><span>Ativo</span><b id="profileActive">-</b></div>
+      <div class="card"><span>Viagens no banco</span><b id="journeyCount">-</b></div>
+    </div>
+    <button class="soft" id="logoutBtn">Sair do teste</button>
+  </div>
+
+  <div id="status" class="status">Aguardando teste.</div>
+  <div class="note">A Publishable Key usada aqui é pública por definição. Nenhuma secret/service_role key é usada nesta página.</div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL='https://yyuqodhrterfrhoyhfut.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_jSWXE3-Ckzf8UNCWgbcM7w_rsgnXXdK';
+const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+
+const $=id=>document.getElementById(id);
+const status=$('status');
+function setStatus(msg,type=''){
+  status.textContent=msg;
+  status.className='status'+(type?' '+type:'');
+}
+async function loadProfile(user){
+  const {data:profile,error:profileError}=await supabase.from('profiles').select('nome,role,ativo,email').eq('id',user.id).single();
+  if(profileError) throw new Error('Perfil: '+profileError.message);
+  const {count,error:journeyError}=await supabase.from('journeys').select('*',{count:'exact',head:true});
+  if(journeyError) throw new Error('Journeys: '+journeyError.message);
+  $('profileName').textContent=profile.nome||profile.email||user.email;
+  $('profileRole').textContent=profile.role||'-';
+  $('profileActive').textContent=profile.ativo?'Sim':'Não';
+  $('journeyCount').textContent=String(count??0);
+  $('loginArea').classList.add('hidden');
+  $('resultArea').classList.remove('hidden');
+  setStatus('✅ Autenticação, perfil e acesso ao banco funcionando.','ok');
+}
+async function restore(){
+  const {data:{session}}=await supabase.auth.getSession();
+  if(session?.user){
+    try{await loadProfile(session.user)}catch(e){setStatus('⚠ Sessão encontrada, mas houve erro: '+e.message,'err')}
+  }
+}
+$('loginBtn').addEventListener('click',async()=>{
+  const email=$('email').value.trim();
+  const password=$('password').value;
+  if(!email||!password){setStatus('Informe e-mail e senha.','err');return}
+  $('loginBtn').disabled=true;
+  setStatus('Conectando ao Supabase...');
+  try{
+    const {data,error}=await supabase.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    await loadProfile(data.user);
+    $('password').value='';
+  }catch(e){
+    setStatus('❌ '+(e?.message||String(e)),'err');
+  }finally{
+    $('loginBtn').disabled=false;
+  }
+});
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')$('loginBtn').click()});
+$('logoutBtn').addEventListener('click',async()=>{
+  await supabase.auth.signOut();
+  $('resultArea').classList.add('hidden');
+  $('loginArea').classList.remove('hidden');
+  setStatus('Sessão encerrada.');
+});
+restore();
+</script>
+</body>
+</html>
