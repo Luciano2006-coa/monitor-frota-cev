@@ -6,10 +6,17 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const base=document.getElementById('base');
 const KEYS=['config','fleet_fronts','logistics','operational_extras','effective_equipment'];
-let channel=null,attachedWindow=null,reloadBusy=false,applyBusy=false,syncTimers={};
+const POLL_MS=5000;
+let attachedWindow=null;
+let applyBusy=false;
+let attachBusy=false;
+let syncTimers={};
+let pollTimer=null;
+const pendingWrites=new Map();
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const clone=v=>JSON.parse(JSON.stringify(v));
+const hash=v=>{try{return JSON.stringify(v)}catch(e){return String(v)}};
 
 function getInnerMonitor(){
   try{
@@ -92,15 +99,17 @@ function bridgeBootstrap(){
     wrap('saveCfg','config');
     wrap('saveFleetFronts','fleet_fronts');
     wrap('saveLogistics','logistics');
-
     ['effSfChangeStatus','effSfToggleMill','effSfToggleFront','effSfSaveMachine','effSfDeleteMachine']
       .forEach(n=>wrap(n,'effective_equipment'));
 
     window.__CEV_EXTRA_EXPORT_SETTINGS__=exportSettings;
 
     window.__CEV_EXTRA_APPLY_SETTINGS__=(map)=>{
+      const active=document.activeElement;
+      const editing=!!(active&&['INPUT','SELECT','TEXTAREA'].includes(active.tagName));
+      if(editing)return {editing:true};
+
       applying=true;
-      let reload=false;
       try{
         if(map?.config&&typeof config!=='undefined'){
           config=clone(map.config);
@@ -157,18 +166,38 @@ function bridgeBootstrap(){
         }
 
         if(map?.effective_equipment){
-          const d=JSON.stringify(map.effective_equipment.data||[]);
-          const mill=String(map.effective_equipment.mill||'running');
-          const fm=JSON.stringify(map.effective_equipment.frontModes||{});
-          const changed=
-            localStorage.getItem('cev_effective_equipment_status_v3')!==d||
-            localStorage.getItem('cev_effective_mill_v3')!==mill||
-            localStorage.getItem('cev_effective_front_modes_v3')!==fm;
-          localStorage.setItem('cev_effective_equipment_status_v3',d);
-          localStorage.setItem('cev_effective_equipment_status_v3_backup',d);
-          localStorage.setItem('cev_effective_mill_v3',mill);
-          localStorage.setItem('cev_effective_front_modes_v3',fm);
-          reload=changed;
+          const payload=clone(map.effective_equipment);
+          if(typeof window.effSfApplyExternal==='function'){
+            window.effSfApplyExternal(payload);
+          }else{
+            const before=exportSettings().effective_equipment;
+            const targetData=Array.isArray(payload.data)?payload.data:[];
+            const targetMill=String(payload.mill||'running');
+            const targetModes=(payload.frontModes&&typeof payload.frontModes==='object')?payload.frontModes:{};
+
+            try{
+              if(before.mill!==targetMill&&typeof window.effSfToggleMill==='function')window.effSfToggleMill();
+              if(typeof window.effSfToggleFront==='function'){
+                Object.keys(targetModes).forEach(front=>{
+                  let cur=(exportSettings().effective_equipment.frontModes||{})[front]||'running';
+                  const wanted=targetModes[front]||'running';
+                  let guard=0;
+                  while(cur!==wanted&&guard<3){window.effSfToggleFront(front);cur=(exportSettings().effective_equipment.frontModes||{})[front]||'running';guard++}
+                });
+              }
+              if(typeof window.effSfChangeStatus==='function'){
+                const curById=new Map((exportSettings().effective_equipment.data||[]).map(x=>[String(x.id),x]));
+                targetData.forEach(x=>{const cur=curById.get(String(x.id));if(cur&&cur.status!==x.status)window.effSfChangeStatus(String(x.id),x.status)});
+              }
+            }catch(e){console.error('[CEV equipamentos apply live]',e)}
+
+            const d=JSON.stringify(targetData);
+            const fm=JSON.stringify(targetModes);
+            localStorage.setItem('cev_effective_equipment_status_v3',d);
+            localStorage.setItem('cev_effective_equipment_status_v3_backup',d);
+            localStorage.setItem('cev_effective_mill_v3',targetMill);
+            localStorage.setItem('cev_effective_front_modes_v3',fm);
+          }
         }
 
         try{
@@ -179,7 +208,7 @@ function bridgeBootstrap(){
       }finally{
         applying=false;
       }
-      return {reload};
+      return {editing:false};
     };
 
     document.documentElement.dataset.supabaseExtra='ready';
@@ -222,38 +251,46 @@ async function fetchSettings(){
 }
 
 async function pushSettingNow(key,value){
-  if(applyBusy||!KEYS.includes(key))return;
+  if(!KEYS.includes(key))return;
   const session=await getSession();
   if(!session?.user)return;
+
+  const wanted=clone(value);
+  const wantedHash=hash(wanted);
+  pendingWrites.set(key,{value:wanted,hash:wantedHash,at:Date.now(),sending:true});
+
   const {error}=await supabase.from('settings').upsert(
-    [{chave:key,valor:clone(value),atualizado_em:new Date().toISOString()}],
+    [{chave:key,valor:wanted,atualizado_em:new Date().toISOString()}],
     {onConflict:'chave'}
   );
-  if(error)console.error('[CEV extra push]',key,error);
+
+  const pending=pendingWrites.get(key);
+  if(error){
+    console.error('[CEV extra push]',key,error);
+    if(pending)pending.sending=false;
+    return;
+  }
+
+  if(pending&&pending.hash===wantedHash)pendingWrites.delete(key);
 }
 
 function queueSetting(key,value){
+  if(!KEYS.includes(key)||applyBusy)return;
   clearTimeout(syncTimers[key]);
   const copy=clone(value);
-  syncTimers[key]=setTimeout(()=>pushSettingNow(key,copy),180);
+  pendingWrites.set(key,{value:copy,hash:hash(copy),at:Date.now(),sending:false});
+  syncTimers[key]=setTimeout(()=>pushSettingNow(key,copy),300);
 }
 
 window.CEV_EXTRA_DB={pushSetting:queueSetting};
 
 async function applySettings(map){
+  if(!map||!Object.keys(map).length)return;
   const m=getInnerMonitor();
   const fn=m?.w?.__CEV_EXTRA_APPLY_SETTINGS__;
   if(typeof fn!=='function')return;
   applyBusy=true;
-  try{
-    const res=fn(map)||{};
-    if(res.reload&&!reloadBusy){
-      reloadBusy=true;
-      setTimeout(()=>base.contentWindow.location.reload(),80);
-    }
-  }finally{
-    setTimeout(()=>{applyBusy=false},100);
-  }
+  try{fn(map)}finally{setTimeout(()=>{applyBusy=false},120)}
 }
 
 async function migrateMissing(){
@@ -271,37 +308,59 @@ async function migrateMissing(){
   await applySettings(db);
 }
 
-async function reloadSettings(){
-  if(reloadBusy)return;
+async function pollSettings(){
+  if(attachBusy||applyBusy||document.hidden)return;
   try{
-    const map=await fetchSettings();
-    await applySettings(map);
-  }catch(e){console.error('[CEV extra reload]',e)}
+    const db=await fetchSettings();
+    const safe={};
+
+    for(const key of KEYS){
+      if(!Object.prototype.hasOwnProperty.call(db,key))continue;
+      const pending=pendingWrites.get(key);
+      if(pending){
+        if(hash(db[key])===pending.hash){
+          pendingWrites.delete(key);
+          continue;
+        }
+        if(!pending.sending&&Date.now()-pending.at>=POLL_MS){
+          pending.at=Date.now();
+          pending.sending=true;
+          pushSettingNow(key,pending.value).catch(()=>{});
+        }
+        continue;
+      }
+      safe[key]=db[key];
+    }
+
+    await applySettings(safe);
+  }catch(e){
+    console.error('[CEV extra poll]',e);
+  }
 }
 
-function startRealtime(){
-  if(channel)supabase.removeChannel(channel);
-  channel=supabase.channel('cev-extra-settings-'+crypto.randomUUID())
-    .on('postgres_changes',{event:'*',schema:'public',table:'settings'},()=>setTimeout(reloadSettings,160))
-    .subscribe();
+function startPolling(){
+  clearInterval(pollTimer);
+  pollTimer=setInterval(pollSettings,POLL_MS);
 }
 
 async function attach(){
+  if(attachBusy)return;
+  attachBusy=true;
   try{
     const ready=await waitReady();
     injectExtra(ready);
     await migrateMissing();
-    if(!reloadBusy)startRealtime();
-  }catch(e){console.error('[CEV extra attach]',e)}
+    startPolling();
+  }catch(e){
+    console.error('[CEV extra attach]',e);
+  }finally{
+    attachBusy=false;
+  }
 }
 
 base.addEventListener('load',()=>{
   attachedWindow=null;
-  setTimeout(async()=>{
-    reloadBusy=false;
-    await attach();
-  },500);
+  setTimeout(()=>attach(),500);
 });
 
 attach();
-setInterval(()=>{if(!document.hidden&&!reloadBusy)reloadSettings()},15000);
