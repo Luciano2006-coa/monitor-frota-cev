@@ -36,6 +36,7 @@ function bridgeBootstrap(){
     const clone=v=>JSON.parse(JSON.stringify(v));
     const parse=(k,f)=>{try{const s=localStorage.getItem(k);return s?JSON.parse(s):f}catch(e){return f}};
     let applying=false;
+    const localHashes={};
 
     const exportSettings=()=>clone({
       config:(typeof config!=='undefined'?config:{}),
@@ -61,9 +62,17 @@ function bridgeBootstrap(){
       if(applying)return;
       try{
         const all=exportSettings();
+        const nextHash=JSON.stringify(all[key]);
+        if(localHashes[key]===nextHash)return;
+        localHashes[key]=nextHash;
         window.top.CEV_EXTRA_DB?.pushSetting(key,all[key]);
       }catch(e){console.error('[CEV extra notify]',e)}
     };
+
+    try{
+      const initial=exportSettings();
+      Object.keys(initial).forEach(k=>localHashes[k]=JSON.stringify(initial[k]));
+    }catch(e){}
 
     const wrap=(name,key)=>{
       try{
@@ -206,6 +215,7 @@ function bridgeBootstrap(){
           if(typeof renderLogisticsPanel==='function')renderLogisticsPanel();
         }catch(e){}
       }finally{
+        try{Object.keys(map||{}).forEach(k=>localHashes[k]=JSON.stringify(exportSettings()[k]))}catch(e){}
         applying=false;
       }
       return {editing:false};
