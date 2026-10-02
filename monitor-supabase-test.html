@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitor CEV • Supabase Teste</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Segoe UI,Arial,sans-serif;background:#0f3557}*{box-sizing:border-box}
+#monitor{position:fixed;inset:0;width:100%;height:100%;border:0;background:#f4f7fb;visibility:hidden}
+#auth{position:fixed;inset:0;z-index:999999;display:grid;place-items:center;padding:20px;background:linear-gradient(135deg,#123d63,#1b5c90)}
+#auth.hidden{display:none}.box{width:min(410px,100%);background:#fff;border-radius:22px;padding:27px;box-shadow:0 26px 70px #0005;color:#173c54}.brand{font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#1b5c90}.box h1{font-size:23px;margin:7px 0 5px}.sub{font-size:13px;color:#6b7d89;margin:0 0 20px}.field{margin:12px 0}.field label{display:block;font-size:11px;font-weight:900;margin-bottom:5px;text-transform:uppercase;color:#486273}.field input{width:100%;padding:12px;border:1px solid #cad6df;border-radius:10px;font-size:14px;outline:none}.field input:focus{border-color:#1b5c90;box-shadow:0 0 0 3px #1b5c9018}.primary{width:100%;padding:12px;border:0;border-radius:10px;background:#1b5c90;color:#fff;font-weight:900;cursor:pointer}.primary:disabled{opacity:.6}.status{min-height:20px;margin-top:11px;font-size:12px;font-weight:700;color:#5e7380}.status.err{color:#b52e2e}.status.ok{color:#167347}.hint{margin-top:14px;padding:10px;border-radius:10px;background:#f3f7f9;color:#72838d;font-size:10px;line-height:1.45}
+#sessionBar{position:fixed;z-index:999998;right:12px;bottom:12px;display:none;align-items:center;gap:8px;padding:7px 9px;border-radius:999px;background:#102f49e8;color:#fff;box-shadow:0 7px 22px #0003;font-size:11px}#sessionBar.show{display:flex}#sessionBar b{font-size:11px}#sessionBar button{border:1px solid #ffffff44;background:#ffffff17;color:#fff;border-radius:999px;padding:5px 9px;font-size:10px;font-weight:800;cursor:pointer}
+</style>
+</head>
+<body>
+<iframe id="monitor" src="./index.html"></iframe>
+<div id="auth">
+  <div class="box">
+    <div class="brand">Central Energética de Vicentina</div>
+    <h1>🔐 Monitor CEV</h1>
+    <p class="sub">Teste de autenticação centralizada pelo Supabase.</p>
+    <div class="field"><label>E-mail</label><input id="email" type="email" autocomplete="username" placeholder="E-mail cadastrado no Supabase"></div>
+    <div class="field"><label>Senha</label><input id="password" type="password" autocomplete="current-password" placeholder="Sua senha"></div>
+    <button id="login" class="primary">Entrar no Monitor</button>
+    <div id="status" class="status">Aguardando login.</div>
+    <div class="hint">Esta é uma cópia de teste. O monitor principal continua intacto. A autenticação é feita no Supabase; nenhuma senha do Supabase fica gravada nesta página.</div>
+  </div>
+</div>
+<div id="sessionBar"><span>☁️ Supabase</span><b id="who">-</b><button id="logout">Sair</button></div>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+const SUPABASE_URL='https://yyuqodhrterfrhoyhfut.supabase.co';
+const SUPABASE_KEY='sb_publishable_jSWXE3-Ckzf8UNCWgbcM7w_rsgnXXdK';
+const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id), frame=$('monitor'), auth=$('auth'), status=$('status'), login=$('login');
+let profile=null;
+function setStatus(t,type=''){status.textContent=t;status.className='status'+(type?' '+type:'')}
+function operatorName(p,user){if(p?.role==='admin')return 'Luciano';return String(p?.nome||user?.email?.split('@')[0]||'Operador').trim()}
+function unlockMonitor(user,p){
+  profile=p; const name=operatorName(p,user); window.__CEV_SUPABASE_USER__={name,role:p.role,email:user.email,id:user.id};
+  $('who').textContent=name+' • '+p.role;
+  const apply=()=>{
+    try{
+      const w=frame.contentWindow,d=frame.contentDocument;if(!w||!d)return false;
+      w.__CEV_SUPABASE_USER__=window.__CEV_SUPABASE_USER__;
+      const s=d.createElement('script');
+      s.textContent=`(()=>{try{const p=window.__CEV_SUPABASE_USER__||{};const n=String(p.name||'Operador');if(typeof CREDENTIALS!=='undefined'&&!CREDENTIALS[n]){CREDENTIALS[n]='__SUPABASE_AUTH__';if(typeof refreshUserLists==='function')refreshUserLists()}if(typeof currentUser!=='undefined')currentUser=n;try{localStorage.setItem(UK,n);sessionStorage.setItem(SESSION_KEY,n)}catch(e){}if(typeof loginScreen!=='undefined')loginScreen.classList.add('hidden');if(typeof activeUser!=='undefined'){activeUser.value=n;activeUser.disabled=true;activeUser.onchange=null}if(typeof activeUserLabel!=='undefined')activeUserLabel.textContent=n;if(typeof syncFloatingPermissions==='function')syncFloatingPermissions();if(typeof render==='function')render();document.documentElement.dataset.supabaseAuth='true';}catch(e){console.error('[CEV Supabase Test]',e)}})();`;
+      d.body.appendChild(s);s.remove();
+      const ls=d.getElementById('loginScreen'); if(ls)ls.classList.add('hidden');
+      frame.style.visibility='visible'; auth.classList.add('hidden'); $('sessionBar').classList.add('show');
+      return true;
+    }catch(e){console.error(e);return false}
+  };
+  if(frame.contentDocument?.readyState==='complete'){if(!apply())setTimeout(apply,500)}
+  else frame.addEventListener('load',()=>setTimeout(apply,150),{once:true});
+}
+async function loadAuthorized(user){
+  const {data:p,error}=await supabase.from('profiles').select('nome,role,ativo,email').eq('id',user.id).single();
+  if(error)throw new Error('Não foi possível carregar seu perfil: '+error.message);
+  if(!p?.ativo){await supabase.auth.signOut();throw new Error('Usuário desativado no Monitor CEV.');}
+  unlockMonitor(user,p);
+}
+login.addEventListener('click',async()=>{
+  const email=$('email').value.trim(),password=$('password').value;if(!email||!password){setStatus('Informe e-mail e senha.','err');return}
+  login.disabled=true;setStatus('Validando no Supabase...');
+  try{const {data,error}=await supabase.auth.signInWithPassword({email,password});if(error)throw error;await loadAuthorized(data.user);$('password').value='';setStatus('Acesso liberado.','ok')}
+  catch(e){setStatus('❌ '+(e?.message||String(e)),'err')}
+  finally{login.disabled=false}
+});
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login.click()});
+$('logout').addEventListener('click',async()=>{await supabase.auth.signOut();location.reload()});
+(async()=>{const {data:{session}}=await supabase.auth.getSession();if(session?.user){setStatus('Restaurando sessão...');try{await loadAuthorized(session.user)}catch(e){setStatus('❌ '+e.message,'err')}}})();
+</script>
+</body>
+</html>
