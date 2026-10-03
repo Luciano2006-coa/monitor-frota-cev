@@ -134,7 +134,7 @@ function viewerName(){
 }
 
 function relativeText(ms){
-  if(!ms)return 'aguardando primeira atualização';
+  if(!ms)return 'aguardando conexão';
   const sec=Math.max(0,Math.floor((Date.now()-ms)/1000));
   if(sec<60)return `há ${sec}s`;
   const min=Math.floor(sec/60);
@@ -149,11 +149,19 @@ function updateViewerStatus(){
   const b=c.innerDoc.getElementById('cevMirrorBadge');
   if(!b)return;
   const age=lastMirrorAt?Date.now()-lastMirrorAt:Infinity;
-  const stale=age>15000;
+  const stale=age>10000;
   b.textContent=stale
-    ? `⚠ Espelho atrasado ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`
-    : `● Espelho atualizado ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`;
+    ? `⚠ Sem contato com o espelho ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`
+    : `● Espelho online • contato ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`;
   b.style.background=stale?'#7a3b10':'#102f49';
+}
+
+function refreshViewerRuntime(c){
+  if(isCoa||!c?.inner)return;
+  try{if(typeof c.inner.render==='function')c.inner.render()}catch(e){}
+  try{if(typeof c.inner.renderOverview==='function')c.inner.renderOverview()}catch(e){}
+  try{if(typeof c.inner.renderLogisticsPanel==='function')c.inner.renderLogisticsPanel()}catch(e){}
+  try{if(typeof c.inner.renderEvoIntegration==='function')c.inner.renderEvoIntegration()}catch(e){}
 }
 
 function setViewerUi(c){
@@ -226,19 +234,26 @@ async function viewerTick(){
   injectMirrorBridge(c);setViewerUi(c);
   try{
     const mirror=await fetchMirror();
-    if(!mirror?.state)return;
-    const mirrorTime=Date.parse(mirror.updated_at||'');
-    if(Number.isFinite(mirrorTime))lastMirrorAt=mirrorTime;
+    lastMirrorAt=Date.now();
+    if(!mirror?.state){refreshViewerRuntime(c);updateViewerStatus();return}
     const version=Number(mirror.version||0);
-    if(version&&version<=lastAppliedVersion){updateViewerStatus();return}
+    if(version&&version<=lastAppliedVersion){
+      refreshViewerRuntime(c);
+      updateViewerStatus();
+      return;
+    }
     const ok=c.inner.__CEV_MIRROR_APPLY__?.(mirror.state);
     if(ok){
       lastAppliedVersion=version||Date.now();
       lastLocalHash=hash(mirror.state);
+      refreshViewerRuntime(c);
       updateViewerStatus();
       try{const el=c.middleDoc?.getElementById('dbState');if(el)el.textContent='Espelho COA atualizado'}catch(e){}
     }
-  }catch(e){console.error('[CEV mirror viewer]',e)}
+  }catch(e){
+    console.error('[CEV mirror viewer]',e);
+    updateViewerStatus();
+  }
 }
 
 async function boot(){
