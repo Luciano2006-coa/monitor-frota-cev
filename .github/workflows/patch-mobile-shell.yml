@@ -1,0 +1,76 @@
+name: Patch same-URL mobile shell
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-mobile-shell.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Inject mobile shell into index
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = 'id="cevSameUrlMobileBridge"'
+          if marker not in s:
+              block = r'''
+<style id="cevSameUrlMobileBridgeStyle">
+#cevMobileShell{display:none}
+@media (max-width:820px){
+  html,body{overscroll-behavior:none}
+  #cevMobileShell{display:block;position:fixed;inset:0;width:100%;height:100dvh;border:0;margin:0;padding:0;z-index:2147483000;background:#06111b}
+}
+</style>
+<script id="cevSameUrlMobileBridge">
+(function(){
+  const mq=window.matchMedia('(max-width:820px)');
+  function sync(){
+    let f=document.getElementById('cevMobileShell');
+    if(mq.matches){
+      if(!f){
+        f=document.createElement('iframe');
+        f.id='cevMobileShell';
+        f.title='Monitor CEV Mobile';
+        f.src='./monitor-mobile.html?embed=1&v=5';
+        f.setAttribute('referrerpolicy','same-origin');
+        document.body.appendChild(f);
+      }
+      document.documentElement.style.overflow='hidden';
+      document.body.style.overflow='hidden';
+    }else{
+      if(f)f.remove();
+      document.documentElement.style.overflow='';
+      document.body.style.overflow='';
+    }
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sync,{once:true});else sync();
+  if(mq.addEventListener)mq.addEventListener('change',sync);else mq.addListener(sync);
+})();
+</script>
+'''
+              s = s.replace('</body>', block + '\n</body>')
+              p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit patched index
+        shell: bash
+        run: |
+          if git diff --quiet -- index.html; then
+            echo 'No changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Enable same URL mobile design'
+          git push
