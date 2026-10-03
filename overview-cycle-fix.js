@@ -3,6 +3,7 @@
 
   const MIN_CYCLE_MS = 30 * 60 * 1000;
   const MAX_CYCLE_MS = 18 * 60 * 60 * 1000;
+  let lastWindow = null;
 
   function monitorWindow(){
     try{
@@ -10,9 +11,7 @@
       const middle = base && base.contentWindow;
       const monitor = middle && middle.document && middle.document.getElementById('monitor');
       return monitor && monitor.contentWindow ? monitor.contentWindow : null;
-    }catch(e){
-      return null;
-    }
+    }catch(e){ return null; }
   }
 
   function localDayStart(){
@@ -26,36 +25,62 @@
     const totalMin = Math.round(ms / 60000);
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
-    if(h) return `${h}h ${String(m).padStart(2,'0')}min`;
-    return `${m}min`;
+    return h ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}min`;
+  }
+
+  function readCycles(w){
+    try{
+      if(typeof w.lgRealCycles === 'function') return w.lgRealCycles(false) || [];
+    }catch(e){}
+    try{
+      const result = w.eval("typeof lgRealCycles==='function' ? lgRealCycles(false) : []");
+      return Array.isArray(result) ? result : [];
+    }catch(e){ return []; }
   }
 
   function validCycleAverage(w){
-    if(!w || typeof w.lgRealCycles !== 'function') return null;
-    try{
-      const startToday = localDayStart();
-      const values = w.lgRealCycles(false)
-        .filter(c => Number(c && c.end) >= startToday && Number(c && c.end) > Number(c && c.start))
-        .map(c => Number(c.end) - Number(c.start))
-        .filter(ms => Number.isFinite(ms) && ms >= MIN_CYCLE_MS && ms <= MAX_CYCLE_MS);
-      if(!values.length) return 0;
-      return values.reduce((a,b) => a + b, 0) / values.length;
-    }catch(e){
-      return null;
-    }
+    const startToday = localDayStart();
+    const cycles = readCycles(w);
+    const values = cycles
+      .filter(c => c && !c.open && Number(c.end) >= startToday && Number(c.end) > Number(c.start))
+      .map(c => Number(c.end) - Number(c.start))
+      .filter(ms => Number.isFinite(ms) && ms >= MIN_CYCLE_MS && ms <= MAX_CYCLE_MS);
+    return values.length ? values.reduce((a,b)=>a+b,0) / values.length : 0;
   }
 
-  function applyFix(){
-    const w = monitorWindow();
+  function applyFixTo(w){
     if(!w || !w.document) return;
     const el = w.document.getElementById('ovCycle');
     if(!el) return;
     const avg = validCycleAverage(w);
-    if(avg === null) return;
     el.textContent = avg ? formatMs(avg) : '--';
-    el.title = 'Ciclo médio usando apenas ciclos válidos entre 30 min e 18 h';
+    el.title = 'Média do tempo real dos ciclos concluídos hoje';
+    el.dataset.cevCycleFixed = '1';
   }
 
-  setInterval(applyFix, 1500);
-  window.addEventListener('load', () => setTimeout(applyFix, 1200));
+  function hookRender(w){
+    if(!w || typeof w.renderOverview !== 'function') return;
+    if(w.renderOverview.__cevCycleFixed) return;
+    const original = w.renderOverview;
+    const wrapped = function(...args){
+      const result = original.apply(this,args);
+      try{ applyFixTo(w); }catch(e){}
+      setTimeout(()=>{ try{ applyFixTo(w); }catch(e){} }, 20);
+      return result;
+    };
+    wrapped.__cevCycleFixed = true;
+    wrapped.__cevOriginal = original;
+    w.renderOverview = wrapped;
+  }
+
+  function ensure(){
+    const w = monitorWindow();
+    if(!w) return;
+    if(lastWindow !== w) lastWindow = w;
+    hookRender(w);
+    applyFixTo(w);
+  }
+
+  setInterval(ensure, 500);
+  window.addEventListener('load', ()=>setTimeout(ensure, 800));
 })();
