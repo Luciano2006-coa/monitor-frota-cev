@@ -59,6 +59,20 @@ function applyIdentity(c){
   }catch(e){console.error('[CEV permission identity]',e)}
 }
 
+function clearReadonlyPending(c){
+  if(isCoa||!c)return;
+  try{
+    const guard=c.inner.__CEV_JOURNEY_GUARD__;
+    if(guard?.state){
+      clearTimeout(guard.state.retryTimer);
+      guard.state.retryTimer=null;
+      guard.state.pending=null;
+      guard.state.guardUntil=0;
+    }
+  }catch(e){}
+  try{c.inner.__CEV_LOGISTICS_LOCAL_DIRTY_UNTIL__=0}catch(e){}
+}
+
 function readonlyNotice(c){
   if(isCoa||!c)return;
   if(c.innerDoc.getElementById('cevReadOnlyBadge'))return;
@@ -89,8 +103,7 @@ function readonlyNotice(c){
 }
 
 function protectWrites(c){
-  if(!c)return;
-  if(isCoa)return;
+  if(!c||isCoa)return;
 
   try{
     const db=c.middle.CEV_DB;
@@ -121,7 +134,11 @@ function protectWrites(c){
 function ensure(){
   const c=ctx();if(!c)return;
   applyIdentity(c);
-  if(!isCoa){protectWrites(c);readonlyNotice(c)}
+  if(!isCoa){
+    clearReadonlyPending(c);
+    protectWrites(c);
+    readonlyNotice(c);
+  }
 }
 
 async function boot(){
