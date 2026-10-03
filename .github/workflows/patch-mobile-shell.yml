@@ -1,25 +1,8 @@
-name: Patch same URL mobile shell
-
-on: push
-
-permissions:
-  contents: write
-
+name: Disabled mobile patch
+on:
+  workflow_dispatch:
 jobs:
-  patch:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Patch index
-        run: python patch_mobile_shell.py
-      - name: Commit index
-        run: |
-          if git diff --quiet -- index.html; then
-            echo "No changes needed"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git commit -m "Enable same URL mobile design"
-          git push
+      - run: echo "Mobile patch workflow disabled"
