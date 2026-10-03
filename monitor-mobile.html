@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07131d">
+<title>Monitor CEV • Mobile</title>
+<link rel="stylesheet" href="./monitor-mobile.css">
+</head>
+<body>
+<div id="auth" class="auth">
+  <div class="authBox">
+    <div class="brandTxt">Central Energética de Vicentina</div>
+    <h1>📱 Monitor CEV Mobile</h1>
+    <div class="tiny">Mesma conta do monitor online.</div>
+    <div class="field"><label>E-mail</label><input id="email" type="email" autocomplete="username"></div>
+    <div class="field"><label>Senha</label><input id="password" type="password" autocomplete="current-password"></div>
+    <button id="login" class="primary">Entrar</button>
+    <div id="authStatus" class="authStatus">Aguardando login.</div>
+    <a class="desktopLink" href="./monitor-supabase-completo.html?desktop=1">Abrir versão desktop</a>
+  </div>
+</div>
+
+<div id="app" class="app" hidden>
+  <header class="top">
+    <div class="brandrow">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M20 3C12 3 6 7 4 15c4-2 7-2 10-1-4 1-7 3-9 6"/><path d="M19 4c0 7-3 11-9 13"/></svg>
+      </div>
+      <div class="brand"><b id="brandUser">COA</b><span>Monitor de Frotas • CEV</span></div>
+      <div class="topActions"><button id="logout" class="iconBtn" title="Sair">↪</button></div>
+    </div>
+    <div id="mirror" class="mirror"><span id="mirrorDot" class="dot"></span><span id="mirrorText">Conectando espelho...</span></div>
+  </header>
+
+  <main class="content">
+    <section class="view active" id="visao">
+      <div class="titleRow"><div><h1>Visão Geral</h1><div class="sub">Operação em tempo real</div></div><div id="clock" class="pill">--:--</div></div>
+      <div class="kpis">
+        <div class="kpi blue"><div class="ico">🚛</div><div id="kpiTrajeto" class="num">0</div><div class="lbl">Em trajeto</div></div>
+        <div class="kpi orange"><div class="ico">🌾</div><div id="kpiCarregando" class="num">0</div><div class="lbl">Carregando</div></div>
+        <div class="kpi green"><div class="ico">↔️</div><div id="kpiTransfer" class="num">0</div><div class="lbl">Em deslocamento</div></div>
+        <div class="kpi gray"><div class="ico">🚚</div><div id="kpiRodando" class="num">0</div><div class="lbl">Caminhões rodando</div></div>
+      </div>
+      <div class="card">
+        <div class="cardHead"><div class="iconbox">🎯</div><div><div class="cardTitle">Meta x Realizado</div><div class="sub">Produção diária</div></div></div>
+        <div class="bigline"><div class="stat"><div id="metaDia" class="v">0 t</div><div class="k">Meta do dia</div></div><div class="stat"><div id="realizadoDia" class="v">0 t</div><div class="k">Realizado</div></div></div>
+        <div class="progress"><i id="metaProgress" style="width:0%"></i></div><div class="rowLabel"><span>Progresso</span><b id="metaPct">0%</b></div>
+      </div>
+      <div class="card">
+        <div class="cardHead"><div class="iconbox">📈</div><div><div class="cardTitle">Previsão 24h</div><div class="sub">Baseada no ritmo de entregas de hoje</div></div></div>
+        <div class="bigline"><div class="stat"><div id="proj24" class="v">0 t</div><div class="k">Previsão</div></div><div class="stat"><div id="projPct" class="v">0%</div><div class="k">Da meta</div></div></div>
+        <div class="progress blue"><i id="projProgress" style="width:0%"></i></div>
+      </div>
+      <div class="card">
+        <div class="cardHead"><div class="iconbox">⏱️</div><div class="cardTitle">Tempos médios</div></div>
+        <div class="legend">
+          <div class="legendRow"><i class="square" style="background:#2d8cff"></i><span>Trechos concluídos</span><b id="avgTrip">--</b></div>
+          <div class="legendRow"><i class="square" style="background:#ff962c"></i><span>Carregamento</span><b id="avgLoad">--</b></div>
+          <div class="legendRow"><i class="square" style="background:#24d17e"></i><span>Atualização</span><b>2 s</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="viagens">
+      <div class="titleRow"><div><h1>Viagens</h1><div class="sub">Status atual dos caminhões</div></div><div id="tripCount" class="pill">0</div></div>
+      <div class="tabs" id="tripFilters"><button class="filter active" data-filter="all">Todas</button><button class="filter" data-filter="active">Em trajeto</button><button class="filter" data-filter="completed">Carregando</button><button class="filter" data-filter="transfer">Deslocamento</button></div>
+      <div id="tripList"></div>
+    </section>
+
+    <section class="view" id="frentes">
+      <div class="titleRow"><div><h1>Frentes</h1><div class="sub">Meta, realizado e equipamentos</div></div><div id="frontCount" class="pill">0</div></div>
+      <div id="frontList"></div>
+    </section>
+
+    <section class="view" id="equipamentos">
+      <div class="titleRow"><div><h1>Equipamentos</h1><div class="sub">Efetivos e manutenção</div></div><div id="equipCount" class="pill">0</div></div>
+      <div class="tabs" id="equipFilters"><button class="filter active" data-filter="all">Todos</button><button class="filter" data-filter="COLHEDORA">Colhedoras</button><button class="filter" data-filter="TRATOR">Tratores</button><button class="filter" data-filter="maintenance">Manutenção</button></div>
+      <div id="equipList"></div>
+    </section>
+  </main>
+
+  <nav class="bottom">
+    <button class="nav active" data-view="visao"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7v9H3z"/><path d="M9 20v-6h6v6"/></svg><span>Visão</span></button>
+    <button class="nav" data-view="viagens"><svg viewBox="0 0 24 24"><path d="M3 17h18"/><path d="M5 17V9h10l3 4h2v4"/><circle cx="8" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Viagens</span></button>
+    <button class="nav" data-view="frentes"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M5 21h14"/><path d="M8 9h8"/><path d="M9 5h6"/></svg><span>Frentes</span></button>
+    <button class="nav" data-view="equipamentos"><svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M4 16V9h8l2 3h4l2 4"/><path d="M8 9V6h5v6"/></svg><span>Equipamentos</span></button>
+  </nav>
+</div>
+
+<script type="module" src="./monitor-mobile.js"></script>
+</body>
+</html>
