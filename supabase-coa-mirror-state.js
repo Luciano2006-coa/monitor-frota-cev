@@ -4,7 +4,7 @@ const SUPABASE_URL='https://yyuqodhrterfrhoyhfut.supabase.co';
 const SUPABASE_KEY='sb_publishable_jSWXE3-Ckzf8UNCWgbcM7w_rsgnXXdK';
 const COA_EMAIL='coa@cev.com.br';
 const MIRROR_KEY='coa_mirror_state';
-const VIEW_POLL_MS=5000;
+const VIEW_POLL_MS=2000;
 const COA_CHECK_MS=1000;
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 const base=document.getElementById('base');
@@ -14,8 +14,10 @@ let currentEmail='';
 let attachedInner=null;
 let lastLocalHash='';
 let lastAppliedVersion=0;
+let lastMirrorAt=0;
 let writing=false;
 let booted=false;
+let statusTimer=null;
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const clone=v=>JSON.parse(JSON.stringify(v));
@@ -127,6 +129,33 @@ function injectMirrorBridge(c){
   attachedInner=c.inner;
 }
 
+function viewerName(){
+  return String(currentEmail||'visualização').split('@')[0]||'visualização';
+}
+
+function relativeText(ms){
+  if(!ms)return 'aguardando primeira atualização';
+  const sec=Math.max(0,Math.floor((Date.now()-ms)/1000));
+  if(sec<60)return `há ${sec}s`;
+  const min=Math.floor(sec/60);
+  if(min<60)return `há ${min} min`;
+  const h=Math.floor(min/60);
+  return `há ${h}h ${min%60}min`;
+}
+
+function updateViewerStatus(){
+  if(isCoa)return;
+  const c=getCtx();if(!c)return;
+  const b=c.innerDoc.getElementById('cevMirrorBadge');
+  if(!b)return;
+  const age=lastMirrorAt?Date.now()-lastMirrorAt:Infinity;
+  const stale=age>15000;
+  b.textContent=stale
+    ? `⚠ Espelho atrasado ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`
+    : `● Espelho atualizado ${relativeText(lastMirrorAt)} • ${viewerName()} • visualização`;
+  b.style.background=stale?'#7a3b10':'#102f49';
+}
+
 function setViewerUi(c){
   if(isCoa||!c)return;
   c.innerDoc.documentElement.dataset.cevMirrorRole='viewer';
@@ -139,10 +168,12 @@ function setViewerUi(c){
   if(!c.innerDoc.getElementById('cevMirrorBadge')){
     const b=c.innerDoc.createElement('div');
     b.id='cevMirrorBadge';
-    b.textContent='👁 Espelho do COA • atualização automática';
-    b.style.cssText='position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:25000;background:#102f49;color:white;padding:8px 13px;border-radius:999px;font:700 11px Segoe UI,Arial;box-shadow:0 8px 24px #0004;pointer-events:none';
+    b.textContent=`● Espelho conectado • ${viewerName()} • visualização`;
+    b.style.cssText='position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:25000;background:#102f49;color:white;padding:8px 13px;border-radius:999px;font:700 11px Segoe UI,Arial;box-shadow:0 8px 24px #0004;pointer-events:none;white-space:nowrap';
     c.innerDoc.body.appendChild(b);
   }
+  if(!statusTimer)statusTimer=setInterval(updateViewerStatus,1000);
+  updateViewerStatus();
   if(!c.inner.__CEV_MIRROR_VIEWER_GUARD__){
     c.inner.__CEV_MIRROR_VIEWER_GUARD__=true;
     const mutating=/salvar|adicionar|excluir|apagar|remover|confirmar|chegou|quebrou|abastecer|finalizar|editar|alterar|reiniciar|limpar|retomar|nova viagem|despachar|cancelar|manutenção|manutencao/i;
@@ -196,12 +227,15 @@ async function viewerTick(){
   try{
     const mirror=await fetchMirror();
     if(!mirror?.state)return;
+    const mirrorTime=Date.parse(mirror.updated_at||'');
+    if(Number.isFinite(mirrorTime))lastMirrorAt=mirrorTime;
     const version=Number(mirror.version||0);
-    if(version&&version<=lastAppliedVersion)return;
+    if(version&&version<=lastAppliedVersion){updateViewerStatus();return}
     const ok=c.inner.__CEV_MIRROR_APPLY__?.(mirror.state);
     if(ok){
       lastAppliedVersion=version||Date.now();
       lastLocalHash=hash(mirror.state);
+      updateViewerStatus();
       try{const el=c.middleDoc?.getElementById('dbState');if(el)el.textContent='Espelho COA atualizado'}catch(e){}
     }
   }catch(e){console.error('[CEV mirror viewer]',e)}
@@ -229,7 +263,6 @@ async function boot(){
   injectMirrorBridge(c);
 
   if(isCoa){
-    // LOCAL-FIRST: publica imediatamente o estado atual carregado do navegador do COA.
     const snap=c.inner.__CEV_MIRROR_EXPORT__?.();
     if(snap){lastLocalHash=hash(snap);await pushMirror(snap)}
     setInterval(coaTick,COA_CHECK_MS);
