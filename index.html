@@ -19,7 +19,7 @@ html,body{margin:0;width:100%;height:100%;background:#f3f7f8;font-family:Segoe U
   const touchDevice=/Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(navigator.userAgent||'');
   const narrow=matchMedia('(max-width:820px)').matches;
   const mobile=forcedMobile||(!forcedDesktop&&(narrow||touchDevice));
-  const target=mobile?'./monitor-mobile.html?v=20261003-9':'./desktop.html?v=20261003-3';
+  const target=mobile?'./monitor-mobile.html?v=20261003-10':'./desktop.html?v=20261003-3';
   try{
     const r=await fetch(target,{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
