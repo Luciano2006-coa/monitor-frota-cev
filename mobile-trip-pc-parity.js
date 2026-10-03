@@ -8,6 +8,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const num=v=>Number.isFinite(Number(v))?Number(v):0;
 let rows=[];
 let filter='active';
+let listNativeSet=null;
+let countNativeSet=null;
 
 function tm(v){if(!v)return '--:--';const d=new Date(Number(v)||v);return Number.isNaN(d.getTime())?'--:--':d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
 function dur(ms){ms=Math.max(0,num(ms));const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h?`${h}h ${String(m).padStart(2,'0')}min`:`${m} min`}
@@ -82,17 +84,30 @@ function cardTransfer(j){
   </div>`;
 }
 
+function writeList(html){
+  const list=$('tripList');
+  if(!list)return;
+  if(listNativeSet)listNativeSet.call(list,html);
+  else list.innerHTML=html;
+}
+function writeCount(value){
+  const count=$('tripCount');
+  if(!count)return;
+  if(countNativeSet)countNativeSet.call(count,String(value));
+  else count.textContent=String(value);
+}
+
 function render(){
   const list=$('tripList'),count=$('tripCount'),filters=$('tripFilters');
   if(!list||!count||!filters)return;
   const group=filter==='active'?'active':filter==='completed'?'completed':'transfer';
   const visible=rows.filter(j=>j.grupo===group);
-  count.textContent=String(visible.length);
+  writeCount(visible.length);
   [...filters.querySelectorAll('[data-filter]')].forEach(b=>{
     const mapped=b.dataset.filter==='ongoing'?'active':b.dataset.filter==='done'?'completed':'transfer';
     b.classList.toggle('active',mapped===filter);
   });
-  list.innerHTML=visible.length?visible.map(j=>group==='active'?cardActive(j):group==='completed'?cardCompleted(j):cardTransfer(j)).join(''):'<div class="empty">Nenhum caminhão neste grupo.</div>';
+  writeList(visible.length?visible.map(j=>group==='active'?cardActive(j):group==='completed'?cardCompleted(j):cardTransfer(j)).join(''):'<div class="empty">Nenhum caminhão neste grupo.</div>');
 }
 
 async function load(){
@@ -104,18 +119,53 @@ async function load(){
   }catch(e){console.warn('[CEV mobile viagens igual PC]',e)}
 }
 
+function lockLegacyRenderer(){
+  const list=$('tripList'),count=$('tripCount');
+  if(!list||!count)return false;
+
+  const innerDesc=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+  const textDesc=Object.getOwnPropertyDescriptor(Node.prototype,'textContent');
+  if(!innerDesc?.get||!innerDesc?.set||!textDesc?.get||!textDesc?.set)return false;
+
+  listNativeSet=innerDesc.set;
+  countNativeSet=textDesc.set;
+
+  if(!Object.prototype.hasOwnProperty.call(list,'innerHTML')){
+    Object.defineProperty(list,'innerHTML',{
+      configurable:true,
+      get(){return innerDesc.get.call(this)},
+      set(){/* bloqueia render antigo; somente o parity escreve via setter nativo */}
+    });
+  }
+  if(!Object.prototype.hasOwnProperty.call(count,'textContent')){
+    Object.defineProperty(count,'textContent',{
+      configurable:true,
+      get(){return textDesc.get.call(this)},
+      set(){/* bloqueia contador do render antigo */}
+    });
+  }
+  document.documentElement.dataset.tripRenderer='pc-parity-only';
+  return true;
+}
+
 function install(){
-  const filters=$('tripFilters');
-  if(!filters)return setTimeout(install,200);
+  const filters=$('tripFilters'),list=$('tripList'),count=$('tripCount');
+  if(!filters||!list||!count)return setTimeout(install,100);
+
+  lockLegacyRenderer();
+
   filters.addEventListener('click',e=>{
     const b=e.target.closest('[data-filter]');
     if(!b)return;
     e.preventDefault();
+    e.stopPropagation();
     e.stopImmediatePropagation();
     filter=b.dataset.filter==='ongoing'?'active':b.dataset.filter==='done'?'completed':'transfer';
     render();
   },true);
+
   const st=document.createElement('style');
+  st.id='cevTripPcParityStyle';
   st.textContent=`
     #tripList .pcMobileMeta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:9px}
     #tripList .pcMobileMeta span{min-width:0;padding:7px 6px;border-radius:9px;background:#f6f9fa;color:#617784;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -125,7 +175,8 @@ function install(){
     #tripList .trip.done{border-left-color:#18a66f}
     #tripList .trip.move{border-left-color:#ef9a29}
   `;
-  document.head.appendChild(st);
+  if(!document.getElementById(st.id))document.head.appendChild(st);
+
   load();
   setInterval(load,2000);
 }
