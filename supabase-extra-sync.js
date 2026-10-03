@@ -5,11 +5,7 @@ const SUPABASE_KEY='sb_publishable_jSWXE3-Ckzf8UNCWgbcM7w_rsgnXXdK';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const base=document.getElementById('base');
-// Logistics possui sincronizador dedicado em supabase-logistics-fix.js.
-// Aqui ele continua permitido para escrita via CEV_EXTRA_DB, mas NÃO participa
-// do polling/aplicação genérica para evitar que um PC sobrescreva outro com cache antigo.
-const SYNC_KEYS=['config','fleet_fronts','operational_extras','effective_equipment'];
-const WRITE_KEYS=[...SYNC_KEYS,'logistics'];
+const KEYS=['config','fleet_fronts','logistics','operational_extras','effective_equipment'];
 const POLL_MS=5000;
 let attachedWindow=null;
 let applyBusy=false;
@@ -111,8 +107,7 @@ function bridgeBootstrap(){
 
     wrap('saveCfg','config');
     wrap('saveFleetFronts','fleet_fronts');
-    // NÃO envolver saveLogistics aqui. O painel chama saveLogistics durante renderizações
-    // e isso fazia clientes antigos sobrescreverem mudanças recentes de outro usuário.
+    wrap('saveLogistics','logistics');
     ['effSfChangeStatus','effSfToggleMill','effSfToggleFront','effSfSaveMachine','effSfDeleteMachine']
       .forEach(n=>wrap(n,'effective_equipment'));
 
@@ -155,7 +150,15 @@ function bridgeBootstrap(){
           }catch(e){}
         }
 
-        // Logistics é aplicado exclusivamente por supabase-logistics-fix.js.
+        if(map?.logistics&&typeof logistics!=='undefined'){
+          logistics=clone(map.logistics);
+          localStorage.setItem('cev_v80_logistics',JSON.stringify(logistics));
+          localStorage.setItem('cev_v80_logistics_backup',JSON.stringify(logistics));
+          try{
+            if(typeof renderLogisticsPanel==='function')renderLogisticsPanel();
+            if(typeof renderEvoIntegration==='function')renderEvoIntegration();
+          }catch(e){}
+        }
 
         if(map?.operational_extras&&typeof data!=='undefined'){
           data.maintenance=clone(map.operational_extras.maintenance||[]);
@@ -209,6 +212,7 @@ function bridgeBootstrap(){
         try{
           if(typeof render==='function')render();
           if(typeof renderOverview==='function')renderOverview();
+          if(typeof renderLogisticsPanel==='function')renderLogisticsPanel();
         }catch(e){}
       }finally{
         try{Object.keys(map||{}).forEach(k=>localHashes[k]=JSON.stringify(exportSettings()[k]))}catch(e){}
@@ -249,7 +253,7 @@ function injectExtra(m){
 }
 
 async function fetchSettings(){
-  const {data,error}=await supabase.from('settings').select('chave,valor,atualizado_em').in('chave',SYNC_KEYS);
+  const {data,error}=await supabase.from('settings').select('chave,valor,atualizado_em').in('chave',KEYS);
   if(error)throw error;
   const map={};
   (data||[]).forEach(r=>map[r.chave]=r.valor);
@@ -257,7 +261,7 @@ async function fetchSettings(){
 }
 
 async function pushSettingNow(key,value){
-  if(!WRITE_KEYS.includes(key))return;
+  if(!KEYS.includes(key))return;
   const session=await getSession();
   if(!session?.user)return;
 
@@ -281,7 +285,7 @@ async function pushSettingNow(key,value){
 }
 
 function queueSetting(key,value){
-  if(!WRITE_KEYS.includes(key)||applyBusy)return;
+  if(!KEYS.includes(key)||applyBusy)return;
   clearTimeout(syncTimers[key]);
   const copy=clone(value);
   pendingWrites.set(key,{value:copy,hash:hash(copy),at:Date.now(),sending:false});
@@ -305,7 +309,7 @@ async function migrateMissing(){
   if(typeof exportFn!=='function')return;
   const local=exportFn();
   const db=await fetchSettings();
-  for(const key of SYNC_KEYS){
+  for(const key of KEYS){
     if(!Object.prototype.hasOwnProperty.call(db,key)&&Object.prototype.hasOwnProperty.call(local,key)){
       await pushSettingNow(key,local[key]);
       db[key]=local[key];
@@ -320,7 +324,7 @@ async function pollSettings(){
     const db=await fetchSettings();
     const safe={};
 
-    for(const key of SYNC_KEYS){
+    for(const key of KEYS){
       if(!Object.prototype.hasOwnProperty.call(db,key))continue;
       const pending=pendingWrites.get(key);
       if(pending){
