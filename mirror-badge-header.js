@@ -13,8 +13,9 @@
     }
   }
 
-  function isMobile() {
-    return touchDevice || window.innerWidth <= MOBILE_MAX || matchMedia('(max-width:820px)').matches;
+  function isMobile(doc) {
+    const innerWidth = doc?.defaultView?.innerWidth || window.innerWidth;
+    return touchDevice || innerWidth <= MOBILE_MAX || window.innerWidth <= MOBILE_MAX;
   }
 
   function findHeader(doc) {
@@ -34,7 +35,7 @@
     const doc = getInnerDoc();
     if (!doc) return;
 
-    if (isMobile()) {
+    if (isMobile(doc)) {
       removeMobileBadge(doc);
       return;
     }
@@ -43,27 +44,34 @@
     if (!badge) return;
 
     const header = findHeader(doc);
-    if (!header || !header.parentNode) return;
+    if (!header) return;
 
     let strip = doc.getElementById('cevMirrorStrip');
     if (!strip) {
       strip = doc.createElement('div');
       strip.id = 'cevMirrorStrip';
-      header.insertAdjacentElement('afterend', strip);
+      doc.body.appendChild(strip);
     }
 
-    const headerHeight = Math.max(0, Math.round(header.getBoundingClientRect().height));
+    const headerRect = header.getBoundingClientRect();
+    const top = Math.max(0, Math.round(headerRect.bottom));
+
     strip.style.cssText = [
-      'position:sticky',
-      `top:${headerHeight}px`,
-      'z-index:9000',
+      'position:fixed',
+      `top:${top}px`,
+      'left:0',
+      'right:0',
+      'width:100%',
       'height:24px',
+      'z-index:14500',
       'display:flex',
       'align-items:center',
       'justify-content:center',
+      'box-sizing:border-box',
       'background:#0b2538',
-      'border-bottom:1px solid rgba(255,255,255,.08)',
-      'box-shadow:0 3px 10px rgba(0,0,0,.10)',
+      'border-top:1px solid rgba(255,255,255,.05)',
+      'border-bottom:1px solid rgba(255,255,255,.09)',
+      'box-shadow:0 3px 10px rgba(0,0,0,.12)',
       'pointer-events:none'
     ].join(';');
 
@@ -71,16 +79,21 @@
 
     badge.style.cssText = [
       'position:static',
+      'left:auto',
+      'right:auto',
+      'top:auto',
+      'bottom:auto',
       'transform:none',
       'display:inline-flex',
       'align-items:center',
+      'justify-content:center',
       'margin:0',
       'padding:0 8px',
       'border-radius:999px',
       'background:transparent',
       'color:#e9f5fb',
       'font:700 10px Segoe UI,Arial,sans-serif',
-      'line-height:24px',
+      'line-height:22px',
       'box-shadow:none',
       'white-space:nowrap',
       'pointer-events:none'
